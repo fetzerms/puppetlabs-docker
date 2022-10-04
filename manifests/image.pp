@@ -95,23 +95,31 @@ define docker::image (
   }
 
   if $image_tag {
-    $image_arg     = "${image}:${image_tag}"
-    $image_remove  = "${docker_command} rmi ${image_force}${image}:${image_tag}"
-    $image_find    = "${docker_command} images -q ${image}:${image_tag}"
+    $image_arg           = "${image}:${image_tag}"
+    $image_remove        = "${docker_command} rmi ${image_force}${image}:${image_tag}"
+    $image_find          = "${docker_command} images -q ${image}:${image_tag}"
+    $image_hash          = "${docker_command} images --no-trunc --quiet ${image}:${image_tag}"
+    $image_info_upstream = "${docker_command} manifest inspect ${image}:${image_tag}"
   } elsif $image_digest {
-    $image_arg     = "${image}@${image_digest}"
-    $image_remove  = "${docker_command} rmi ${image_force}${image}:${image_digest}"
-    $image_find    = "${docker_command} images -q ${image}@${image_digest}"
+    $image_arg           = "${image}@${image_digest}"
+    $image_remove        = "${docker_command} rmi ${image_force}${image}:${image_digest}"
+    $image_find          = "${docker_command} images -q ${image}@${image_digest}"
+    $image_hash          = "${docker_command} images --no-trunc --quiet ${image}@${image_digest}"
+    $image_info_upstream = "${docker_command} manifest inspect ${image}@${image_digest}"
   } else {
-    $image_arg     = $image
-    $image_remove  = "${docker_command} rmi ${image_force}${image}"
-    $image_find    = "${docker_command} images -q ${image}"
+    $image_arg           = $image
+    $image_remove        = "${docker_command} rmi ${image_force}${image}"
+    $image_find          = "${docker_command} images -q ${image}"
+    $image_hash          = "${docker_command} images --no-trunc --quiet ${image}"
+    $image_info_upstream = "${docker_command} manifest inspect ${image}"
   }
 
   if $facts['os']['family'] == 'windows' {
     $_image_find = "If (-not (${image_find}) ) { Exit 1 }"
+    $_image_compare = ""
   } else {
     $_image_find = "${image_find} | grep ."
+    $_image_compare = "${image_info_upstream} | grep ´${image_hash}´"
   }
 
   if ($docker_dir) and ($docker_file) {
@@ -144,10 +152,7 @@ define docker::image (
       logoutput   => true,
     }
   } elsif $ensure == 'latest' or $image_tag == 'latest' or $force {
-    notify { "Check if image ${image_arg} is in-sync":
-      noop => false,
-    }
-    ~> exec { $image_install:
+    exec { $image_install:
       environment => $exec_environment,
       path        => $exec_path,
       timeout     => $exec_timeout,
@@ -155,15 +160,7 @@ define docker::image (
       require     => File[$update_docker_image_path],
       provider    => $exec_provider,
       logoutput   => true,
-    }
-    ~> exec { "echo 'Update of ${image_arg} complete'":
-      environment => $exec_environment,
-      path        => $exec_path,
-      timeout     => $exec_timeout,
-      require     => File[$update_docker_image_path],
-      provider    => $exec_provider,
-      logoutput   => true,
-      refreshonly => true,
+      unless      => $_image_compare,
     }
   } elsif $ensure == 'present' {
     exec { $image_install:
